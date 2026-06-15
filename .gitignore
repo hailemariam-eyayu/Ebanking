@@ -1,0 +1,36 @@
+# ── Environment files (NEVER commit real credentials) ────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+**/node_modules/
+
+# ── Build output ──────────────────────────────────────────────────────────────
+**/dist/
+**/dist-ssr/
+**/.vite/
+
+# ── Prisma generated client ───────────────────────────────────────────────────
+Backend/node_modules/.prisma/
+Backend/src/generated/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.sw?
+*.local
+
+# ── Misc ─────────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+coverage/

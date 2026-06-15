@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+:root {
+  --brand-primary: #0d2d6b;
+  --brand-accent:  #c8102e;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #f4f6fb;
+}
+
+/* Sidebar active */
+.nav-active {
+  background: rgba(255,255,255,0.12);
+  border-left: 3px solid #c8102e;
+}
