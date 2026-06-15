@@ -5,11 +5,9 @@ require('dotenv').config()
 const { PrismaClient } = require('@prisma/client')
 const { PrismaPg }     = require('@prisma/adapter-pg')
 
-const adapter = new PrismaPg({ connectionString: process.env.BO_DATABASE_URL })
-
-const prismaBO = new PrismaClient({
-  adapter,
+const prismaIB = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: process.env.IB_DATABASE_URL }),
   log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
 })
 
-module.exports = prismaBO
+module.exports = prismaIB

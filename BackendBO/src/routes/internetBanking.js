@@ -151,6 +151,40 @@ router.post('/users/:id/reset-pin', verifyBO, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── Edit sub-user profile (fullName, email, userRole, viewOnly) ───────────────
+router.put('/users/:id', verifyBO, async (req, res, next) => {
+  try {
+    const { fullName, email, userRole, viewOnly, isActive } = req.body;
+    const user = await prismaIB.iBUser.update({
+      where: { id: req.params.id },
+      data: { fullName, email, userRole, viewOnly, isActive },
+      include: { menuRights: true },
+    });
+    res.json({ ...user, passwordHash: undefined });
+  } catch (err) { next(err); }
+});
+
+// ── Block / unblock sub-user ──────────────────────────────────────────────────
+router.post('/users/:id/block', verifyBO, async (req, res, next) => {
+  try {
+    const user = await prismaIB.iBUser.update({
+      where: { id: req.params.id },
+      data: { isActive: false },
+    });
+    res.json({ ...user, passwordHash: undefined });
+  } catch (err) { next(err); }
+});
+
+router.post('/users/:id/unblock', verifyBO, async (req, res, next) => {
+  try {
+    const user = await prismaIB.iBUser.update({
+      where: { id: req.params.id },
+      data: { isActive: true },
+    });
+    res.json({ ...user, passwordHash: undefined });
+  } catch (err) { next(err); }
+});
+
 router.put('/users/:id/email', verifyBO, async (req, res, next) => {
   try {
     const { email } = req.body;

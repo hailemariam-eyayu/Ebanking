@@ -105,3 +105,4 @@ Currently integrated:
 - `QueryCustAcc` — by account number
 
 New endpoints will be added as they are provided by CBS team.
+"# Ebanking" 

@@ -1,0 +1,155 @@
+// Prisma Schema — Internet Banking (Prisma v7)
+// Connection URL is managed in prisma.config.ts — NOT here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── IB Customer ────────────────────────────────────────────────────────────────
+model IBCustomer {
+  id              String         @id @default(uuid())
+  custNo          String         @unique
+  fullName        String
+  email           String?
+  phone           String?
+  branch          String
+  accountType     AccountType    @default(INDIVIDUAL)
+  activationLevel Int            @default(1)
+  approvalLimit   Decimal?
+  status          CustomerStatus @default(PENDING)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  ibUsers      IBUser[]
+  transactions IBTransaction[]
+
+  @@map("ib_customers")
+}
+
+enum AccountType {
+  INDIVIDUAL
+  CORPORATE
+  GOVERNMENT
+}
+
+enum CustomerStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+  SUSPENDED
+}
+
+// ── IB User ────────────────────────────────────────────────────────────────────
+model IBUser {
+  id           String            @id @default(uuid())
+  customerId   String
+  customer     IBCustomer        @relation(fields: [customerId], references: [id])
+  username     String            @unique
+  email        String            @unique
+  passwordHash String
+  fullName     String
+  userRole     IBUserRole        @default(OWNER)
+  isActive     Boolean           @default(true)
+  viewOnly     Boolean           @default(false)
+  menuRights   IBUserMenuRight[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  initiatedTxns IBTransaction[] @relation("Maker")
+  checkedTxns   IBTransaction[] @relation("Checker")
+  approvedTxns  IBTransaction[] @relation("Approver")
+
+  @@map("ib_users")
+}
+
+enum IBUserRole {
+  OWNER
+  MAKER
+  CHECKER
+  APPROVER
+  VIEWER
+}
+
+// ── IB Menu rights per user ────────────────────────────────────────────────────
+model IBUserMenuRight {
+  id      String  @id @default(uuid())
+  user    IBUser  @relation(fields: [userId], references: [id])
+  userId  String
+  menuKey String
+  canView Boolean @default(true)
+  canAct  Boolean @default(false)
+
+  @@unique([userId, menuKey])
+  @@map("ib_user_menu_rights")
+}
+
+// ── Transactions ───────────────────────────────────────────────────────────────
+model IBTransaction {
+  id            String     @id @default(uuid())
+  customerId    String
+  customer      IBCustomer @relation(fields: [customerId], references: [id])
+  type          TxnType
+  fromAccount   String
+  toAccount     String?
+  amount        Decimal
+  currency      String     @default("ETB")
+  description   String?
+  status        TxnStatus  @default(PENDING)
+  workflowLevel Int
+
+  makerId    String?
+  maker      IBUser? @relation("Maker",    fields: [makerId],    references: [id])
+  checkerId  String?
+  checker    IBUser? @relation("Checker",  fields: [checkerId],  references: [id])
+  approverId String?
+  approver   IBUser? @relation("Approver", fields: [approverId], references: [id])
+
+  makerAt        DateTime?
+  checkerAt      DateTime?
+  approverAt     DateTime?
+  rejectedAt     DateTime?
+  rejectedBy     String?
+  rejectedReason String?
+  cbsReference   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ib_transactions")
+}
+
+enum TxnType {
+  INTERNAL_TRANSFER
+  EXTERNAL_TRANSFER
+  BILL_PAYMENT
+  OWN_ACCOUNT_TRANSFER
+}
+
+enum TxnStatus {
+  PENDING
+  PENDING_CHECKER
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PROCESSED
+  FAILED
+}
+
+// ── Audit log (IB side) ────────────────────────────────────────────────────────
+model AuditLog {
+  id        String   @id @default(uuid())
+  actor     String
+  actorType String
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
