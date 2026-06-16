@@ -12,7 +12,16 @@ export function AuthProvider({ children }) {
     const token = localStorage.getItem('ib_token')
     if (!token) { setLoading(false); return }
     api.get('/auth/me')
-      .then(r => setUser(r.data))
+      .then(r => {
+        const data = r.data
+        setUser(data)
+        // /auth/me returns full IBUser with menuRights array — restore them
+        if (Array.isArray(data.menuRights)) {
+          setMenuRights(data.menuRights.map(m => ({
+            menuKey: m.menuKey, canView: m.canView, canAct: m.canAct,
+          })))
+        }
+      })
       .catch(() => localStorage.removeItem('ib_token'))
       .finally(() => setLoading(false))
   }, [])

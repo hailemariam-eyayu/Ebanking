@@ -10,6 +10,7 @@ const accountRoutes     = require('./routes/accounts');
 const transactionRoutes = require('./routes/transactions');
 const userRoutes        = require('./routes/users');
 const dashboardRoutes   = require('./routes/dashboard');
+const a2aRoutes         = require('./routes/a2a');
 
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -18,8 +19,10 @@ const PORT = process.env.PORT || 5003;
 
 app.use(cors({
   origin: [
-    'http://localhost:5174',  // Internet Banking dev
+    'http://localhost:5174',     // Internet Banking dev (local)
     'http://localhost:4174',
+    'http://10.1.12.35:5174',   // Internet Banking on LAN
+    'http://10.1.12.35:4174',
   ],
   credentials: true,
 }));
@@ -32,6 +35,7 @@ app.use('/api/ib/accounts',     accountRoutes);
 app.use('/api/ib/transactions', transactionRoutes);
 app.use('/api/ib/users',        userRoutes);
 app.use('/api/ib/dashboard',    dashboardRoutes);
+app.use('/api/ib/a2a',          a2aRoutes);
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'internet-banking', ts: new Date() }));

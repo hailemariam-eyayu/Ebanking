@@ -73,8 +73,10 @@ router.post('/activate', verifyBO, async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(userPassword, 12);
-    const ibUser = await prismaIB.iBUser.create({
-      data: { customerId: customer.id, username, email, passwordHash, fullName, userRole: 'OWNER' },
+    const ibUser = await prismaIB.iBUser.upsert({
+      where:  { email },
+      update: { customerId: customer.id, username, passwordHash, fullName, userRole: 'OWNER', isActive: true },
+      create: { customerId: customer.id, username, email, passwordHash, fullName, userRole: 'OWNER' },
     });
 
     res.status(201).json({ customer, ibUser: { ...ibUser, passwordHash: undefined } });

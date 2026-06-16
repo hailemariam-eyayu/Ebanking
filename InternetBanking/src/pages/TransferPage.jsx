@@ -38,7 +38,7 @@ export default function TransferPage() {
 
   const selectedAcc = accounts.find(a => a.accountNumber === form.fromAccount)
 
-  if (!canAct('transfer') && user?.userRole !== 'OWNER') {
+  if (!canAct('transfer') && !canAct('a2a_transfer') && user?.userRole !== 'OWNER') {
     return (
       <div className="bg-white rounded-2xl p-10 text-center shadow-sm">
         <Info size={40} className="mx-auto mb-3 text-gray-300" />

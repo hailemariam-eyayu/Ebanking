@@ -101,29 +101,23 @@ async function queryCustomerByPhone(phone) {
   return res.FCUBS_BODY?.['Customer-Full'];
 }
 
-async function queryCustAcc(accountNo, branch) {
-  // 1. Sanitize input and force max length to exactly 16 characters
-  let cleanedAccount = String(accountNo).replace(/\s/g, '');
-  if (cleanedAccount.length > 16) {
-    cleanedAccount = cleanedAccount.substring(0, 16); 
-  }
+async function queryCustAcc(accountNo) {
+  // Sanitize account number
+  const cleanedAccount = String(accountNo)
+    .replace(/\s/g, '')
+    .substring(0, 16);
 
-  // 2. Extract branch code dynamically from the first 3 characters 
-  let brn = branch;
-  if (!brn && cleanedAccount) {
-    if (cleanedAccount.length >= 3) {
-      brn = cleanedAccount.substring(0, 3);
-    }
-  }
-  brn = brn || CBS_BRANCH;
+  // Always derive branch from account number
+  const brn = cleanedAccount.substring(0, 3);
 
-  console.log(`[SOAP Debug] Querying account detail... Account: ${cleanedAccount} | Target Derived Branch: ${brn}`);
+  console.log(
+    `[SOAP Debug] Querying account detail... Account: ${cleanedAccount} | Derived Branch: ${brn}`
+  );
 
-  // 3. Keep the exact format from your working XML sample
   const envelope = `
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
    xmlns:fcub="http://fcubs.ofss.com/service/FCUBSAccService">
-   <soapenv:Header />
+   <soapenv:Header/>
    <soapenv:Body>
       <fcub:QUERYCUSTACC_IOFS_REQ>
          <fcub:FCUBS_HEADER>
@@ -144,22 +138,25 @@ async function queryCustAcc(accountNo, branch) {
    </soapenv:Body>
 </soapenv:Envelope>`.trim();
 
-  try {
-    const body = await soapCall(CBS_ACC_URL, 'QueryCustAcc', envelope);
-    const res  = body?.['QUERYCUSTACC_IOFS_RES'];
-    const stat = res?.FCUBS_HEADER?.MSGSTAT;
-    
-    if (stat !== 'SUCCESS') {
-      const err = res?.FCUBS_BODY?.FCUBS_ERROR_RESP?.ERROR?.EDESC || 'CBS error';
-      console.error(`[SOAP Response Error] Branch: ${brn} | Msg: ${err}`);
-      throw new Error(err);
-    }
-    return res.FCUBS_BODY?.['Cust-Account-Full'];
-  } catch (error) {
-    console.error(`[SOAP Network/Execution Crash] Details:`, error.message);
-    throw error;
+  const body = await soapCall(CBS_ACC_URL, 'QueryCustAcc', envelope);
+  const res = body?.['QUERYCUSTACC_IOFS_RES'];
+  const stat = res?.FCUBS_HEADER?.MSGSTAT;
+
+  if (stat !== 'SUCCESS') {
+    const err =
+      res?.FCUBS_BODY?.FCUBS_ERROR_RESP?.ERROR?.EDESC ||
+      'CBS error';
+
+    console.error(
+      `[SOAP Response Error] Branch: ${brn} | Msg: ${err}`
+    );
+
+    throw new Error(err);
   }
+
+  return res.FCUBS_BODY?.['Cust-Account-Full'];
 }
+
 // async function queryCustAcc(accountNo, branch) {
 //   // Extract branch code dynamically from the first 3 characters of the account number
 //   let brn = branch;
