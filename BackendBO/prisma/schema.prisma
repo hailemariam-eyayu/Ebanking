@@ -105,8 +105,25 @@ model IBCustomer {
 
   ibUsers      IBUser[]
   transactions IBTransaction[]
+  accounts     IBAccount[]
 
   @@map("ib_customers")
+}
+
+// ── Attached CBS accounts ──────────────────────────────────────────────────────
+model IBAccount {
+  id            String     @id @default(uuid())
+  customerId    String
+  customer      IBCustomer @relation(fields: [customerId], references: [id])
+  accountNumber String
+  accountClass  String?
+  currency      String     @default("ETB")
+  fullName      String?
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+
+  @@unique([customerId, accountNumber])
+  @@map("ib_accounts")
 }
 
 enum AccountType {

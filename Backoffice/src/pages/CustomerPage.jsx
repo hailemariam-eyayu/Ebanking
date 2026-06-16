@@ -341,15 +341,46 @@ function IBActivateCard({ custNo, fullName, phone, phones, onPhoneChange, onDone
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({
     email: '', username: '', userPassword: '',
-    accountType: 'INDIVIDUAL', activationLevel: 1,
-    approvalLimit: '',
+    accountType: 'INDIVIDUAL', activationLevel: 1, approvalLimit: '',
   })
-  const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState('')
+  const [cbsAccounts, setCbsAccounts]       = useState([])     // fetched from CBS
+  const [selectedAccNos, setSelectedAccNos] = useState([])     // checked account numbers
+  const [accLoading, setAccLoading]         = useState(false)
+  const [loading, setLoading]               = useState(false)
+  const [err, setErr]                       = useState('')
+
+  // Fetch CBS accounts when card opens
+  async function loadCBSAccounts() {
+    setAccLoading(true)
+    try {
+      const { data } = await api.get(`/ib/cbs-accounts/${custNo}`)
+      setCbsAccounts(data)
+      // pre-select all active accounts
+      setSelectedAccNos(data.filter(a => a.status === 'ACTIVE').map(a => a.accountNumber))
+    } catch {
+      setCbsAccounts([])
+    } finally { setAccLoading(false) }
+  }
+
+  function toggleAcc(accNo) {
+    setSelectedAccNos(prev =>
+      prev.includes(accNo) ? prev.filter(x => x !== accNo) : [...prev, accNo]
+    )
+  }
 
   async function activate() {
+    if (!selectedAccNos.length) return setErr('Select at least one account')
     setLoading(true); setErr('')
     try {
+      const selectedAccounts = cbsAccounts
+        .filter(a => selectedAccNos.includes(a.accountNumber))
+        .map(a => ({
+          accountNumber: a.accountNumber,
+          accountClass:  a.accountClass,
+          currency:      a.currency,
+          fullName:      a.fullName,
+        }))
+
       await api.post('/ib/activate', {
         custNo, fullName,
         phone: phone || phones?.[0] || '',
@@ -360,6 +391,7 @@ function IBActivateCard({ custNo, fullName, phone, phones, onPhoneChange, onDone
         accountType: form.accountType,
         activationLevel: form.activationLevel,
         approvalLimit: form.approvalLimit ? parseFloat(form.approvalLimit) : null,
+        selectedAccounts,
       })
       setOpen(false)
       onDone?.()
@@ -369,12 +401,14 @@ function IBActivateCard({ custNo, fullName, phone, phones, onPhoneChange, onDone
   }
 
   if (!open) return (
-    <button onClick={() => setOpen(true)}
+    <button onClick={() => { setOpen(true); loadCBSAccounts() }}
       className="w-full py-2.5 rounded-lg text-white text-sm font-medium"
       style={{ background: 'var(--brand-primary)' }}>
       Activate Internet Banking
     </button>
   )
+
+  const canActivate = form.email && form.username && form.userPassword && selectedAccNos.length > 0
 
   return (
     <div className="bg-white rounded-xl shadow-sm p-5">
@@ -382,12 +416,10 @@ function IBActivateCard({ custNo, fullName, phone, phones, onPhoneChange, onDone
       {err && <div className="text-red-500 text-xs mb-3 bg-red-50 rounded p-2">{err}</div>}
       <div className="space-y-3">
 
-        {/* Phone selector */}
         {phones && phones.length > 1 && (
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Select Phone Number</label>
-            <select value={phone} onChange={e => onPhoneChange(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <label className="block text-xs text-gray-500 mb-1">Phone Number</label>
+            <select value={phone} onChange={e => onPhoneChange(e.target.value)} className={INP}>
               {phones.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
@@ -396,32 +428,24 @@ function IBActivateCard({ custNo, fullName, phone, phones, onPhoneChange, onDone
         <div>
           <label className="block text-xs text-gray-500 mb-1">Customer Email</label>
           <input type="email" placeholder="customer@email.com" value={form.email}
-            onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className={INP} />
         </div>
-
         <div>
           <label className="block text-xs text-gray-500 mb-1">IB Username</label>
           <input type="text" placeholder="username" value={form.username}
-            onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            onChange={e => setForm(f => ({ ...f, username: e.target.value }))} className={INP} />
         </div>
-
         <div>
           <label className="block text-xs text-gray-500 mb-1">Temporary Password</label>
           <input type="password" placeholder="••••••••" value={form.userPassword}
-            onChange={e => setForm(f => ({ ...f, userPassword: e.target.value }))}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            onChange={e => setForm(f => ({ ...f, userPassword: e.target.value }))} className={INP} />
         </div>
 
         <div>
           <label className="block text-xs text-gray-500 mb-1">Account Type</label>
           <select value={form.accountType}
-            onChange={e => setForm(f => ({
-              ...f, accountType: e.target.value,
-              activationLevel: e.target.value === 'INDIVIDUAL' ? 1 : 2,
-            }))}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            onChange={e => setForm(f => ({ ...f, accountType: e.target.value, activationLevel: e.target.value === 'INDIVIDUAL' ? 1 : 2 }))}
+            className={INP}>
             <option value="INDIVIDUAL">Individual</option>
             <option value="CORPORATE">Corporate</option>
             <option value="GOVERNMENT">Government</option>
@@ -429,37 +453,83 @@ function IBActivateCard({ custNo, fullName, phone, phones, onPhoneChange, onDone
         </div>
 
         {form.accountType !== 'INDIVIDUAL' && (
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Workflow Level</label>
-            <select value={form.activationLevel}
-              onChange={e => setForm(f => ({ ...f, activationLevel: parseInt(e.target.value) }))}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-              <option value={2}>Level 2 — Maker + Checker</option>
-              <option value={3}>Level 3 — Maker + Checker + Approver</option>
-            </select>
-          </div>
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Workflow Level</label>
+              <select value={form.activationLevel}
+                onChange={e => setForm(f => ({ ...f, activationLevel: parseInt(e.target.value) }))}
+                className={INP}>
+                <option value={2}>Level 2 — Maker + Checker</option>
+                <option value={3}>Level 3 — Maker + Checker + Approver</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Auto-Approval Limit (ETB) — optional</label>
+              <input type="number" placeholder="e.g. 50000" value={form.approvalLimit}
+                onChange={e => setForm(f => ({ ...f, approvalLimit: e.target.value }))} className={INP} />
+              <p className="text-[10px] text-gray-400 mt-1">Transactions below this skip the workflow.</p>
+            </div>
+          </>
         )}
 
-        {form.accountType !== 'INDIVIDUAL' && (
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Auto-Approval Limit (ETB) — optional</label>
-            <input type="number" placeholder="e.g. 50000" value={form.approvalLimit}
-              onChange={e => setForm(f => ({ ...f, approvalLimit: e.target.value }))}
-              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-            <p className="text-[10px] text-gray-400 mt-1">Transactions below this amount skip the workflow.</p>
+        {/* Account selection */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-gray-500">
+              Attach Accounts <span className="text-red-500">*</span>
+            </label>
+            {cbsAccounts.length > 0 && (
+              <div className="flex gap-2">
+                <button onClick={() => setSelectedAccNos(cbsAccounts.map(a => a.accountNumber))}
+                  className="text-[10px] text-blue-600 hover:underline">All</button>
+                <button onClick={() => setSelectedAccNos([])}
+                  className="text-[10px] text-gray-400 hover:underline">None</button>
+              </div>
+            )}
           </div>
-        )}
+
+          {accLoading ? (
+            <div className="text-xs text-gray-400 py-2 text-center">Loading accounts…</div>
+          ) : cbsAccounts.length === 0 ? (
+            <div className="text-xs text-red-400 py-2 text-center">No accounts found for this customer</div>
+          ) : (
+            <div className="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {cbsAccounts.map(acc => (
+                <label key={acc.accountNumber}
+                  className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer border-b last:border-0">
+                  <input type="checkbox"
+                    checked={selectedAccNos.includes(acc.accountNumber)}
+                    onChange={() => toggleAcc(acc.accountNumber)}
+                    className="accent-blue-600 w-4 h-4 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-xs font-medium text-gray-800">{acc.accountNumber}</div>
+                    <div className="text-[10px] text-gray-400">{acc.accountClass} · {acc.currency}</div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-xs font-medium text-gray-700">{formatAmount(acc.currentBalance)}</div>
+                    <AccountStatusBadge status={acc.status} />
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+          {selectedAccNos.length === 0 && cbsAccounts.length > 0 && (
+            <p className="text-[10px] text-red-500 mt-1">Select at least one account</p>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2 mt-4">
         <button onClick={() => setOpen(false)}
           className="flex-1 py-2 text-sm border rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
-        <button onClick={activate} disabled={loading || !form.email || !form.username || !form.userPassword}
+        <button onClick={activate} disabled={loading || !canActivate}
           className="flex-1 py-2 text-sm rounded-lg text-white disabled:opacity-50"
           style={{ background: 'var(--brand-primary)' }}>
-          {loading ? 'Activating…' : 'Activate'}
+          {loading ? 'Activating…' : `Activate (${selectedAccNos.length} account${selectedAccNos.length !== 1 ? 's' : ''})`}
         </button>
       </div>
     </div>
   )
 }
+
+const INP = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400'

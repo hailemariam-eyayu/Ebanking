@@ -55,8 +55,9 @@ router.get('/me', verifyBO, async (req, res, next) => {
       include: { role: true },
     });
     if (!user) return res.status(404).json({ message: 'User not found' });
-    const { passwordHash, ...safe } = user;
-    res.json(safe);
+    const { passwordHash, role, ...safe } = user;
+    // Normalize role to a string (same shape as login response)
+    res.json({ ...safe, role: role?.name || null });
   } catch (err) { next(err); }
 });
 

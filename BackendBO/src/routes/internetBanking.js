@@ -11,10 +11,20 @@ const { verifyBO } = require('../middleware/auth');
 router.get('/customers', verifyBO, async (req, res, next) => {
   try {
     const customers = await prismaIB.iBCustomer.findMany({
-      include: { ibUsers: true },
+      include: { ibUsers: true, accounts: true },
       orderBy: { createdAt: 'desc' },
     });
     res.json(customers);
+  } catch (err) { next(err); }
+});
+
+// ── Fetch CBS accounts for a CIF (used in activation form) ───────────────────
+// GET /api/bo/ib/cbs-accounts/:custNo
+router.get('/cbs-accounts/:custNo', verifyBO, async (req, res, next) => {
+  try {
+    const oracle = require('../lib/cbsOracle');
+    const accounts = await oracle.getAccountsByCif(req.params.custNo);
+    res.json(accounts);
   } catch (err) { next(err); }
 });
 
@@ -24,37 +34,47 @@ router.post('/activate', verifyBO, async (req, res, next) => {
   try {
     const {
       custNo, fullName, email, phone, branch,
-      accountType,
-      activationLevel,
-      approvalLimit,
+      accountType, activationLevel, approvalLimit,
       username, userPassword,
+      selectedAccounts = [],   // [{ accountNumber, accountClass, currency, fullName }]
     } = req.body;
 
     if (!custNo || !fullName || !email || !username || !userPassword)
       return res.status(400).json({ message: 'Required fields missing' });
+    if (!selectedAccounts.length)
+      return res.status(400).json({ message: 'At least one account must be selected' });
 
     const level = activationLevel || (accountType === 'INDIVIDUAL' ? 1 : 2);
 
     const customer = await prismaIB.iBCustomer.upsert({
-      where: { custNo },
+      where:  { custNo },
       update: { status: 'ACTIVE', activationLevel: level, approvalLimit, email, phone },
       create: {
-        custNo, fullName, email, phone, branch,
+        custNo, fullName, email, phone, branch: branch || '001',
         accountType: accountType || 'INDIVIDUAL',
-        activationLevel: level,
-        approvalLimit,
-        status: 'ACTIVE',
+        activationLevel: level, approvalLimit, status: 'ACTIVE',
       },
     });
 
+    // Save selected accounts
+    for (const acc of selectedAccounts) {
+      await prismaIB.iBAccount.upsert({
+        where:  { customerId_accountNumber: { customerId: customer.id, accountNumber: acc.accountNumber } },
+        update: { isActive: true, accountClass: acc.accountClass, currency: acc.currency, fullName: acc.fullName },
+        create: {
+          customerId:    customer.id,
+          accountNumber: acc.accountNumber,
+          accountClass:  acc.accountClass || null,
+          currency:      acc.currency     || 'ETB',
+          fullName:      acc.fullName     || null,
+          isActive:      true,
+        },
+      });
+    }
+
     const passwordHash = await bcrypt.hash(userPassword, 12);
     const ibUser = await prismaIB.iBUser.create({
-      data: {
-        customerId: customer.id,
-        username, email,
-        passwordHash, fullName,
-        userRole: 'OWNER',
-      },
+      data: { customerId: customer.id, username, email, passwordHash, fullName, userRole: 'OWNER' },
     });
 
     res.status(201).json({ customer, ibUser: { ...ibUser, passwordHash: undefined } });
@@ -191,6 +211,30 @@ router.put('/users/:id/email', verifyBO, async (req, res, next) => {
     if (!email) return res.status(400).json({ message: 'email required' });
     const user = await prismaIB.iBUser.update({ where: { id: req.params.id }, data: { email } });
     res.json({ ...user, passwordHash: undefined });
+  } catch (err) { next(err); }
+});
+
+// ── Customer accounts management ──────────────────────────────────────────────
+// GET attached accounts for a customer
+router.get('/customers/:id/accounts', verifyBO, async (req, res, next) => {
+  try {
+    const accounts = await prismaIB.iBAccount.findMany({
+      where: { customerId: req.params.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json(accounts);
+  } catch (err) { next(err); }
+});
+
+// Toggle account active/inactive
+router.patch('/customers/:id/accounts/:accountNumber', verifyBO, async (req, res, next) => {
+  try {
+    const { isActive } = req.body;
+    const acc = await prismaIB.iBAccount.update({
+      where: { customerId_accountNumber: { customerId: req.params.id, accountNumber: req.params.accountNumber } },
+      data: { isActive },
+    });
+    res.json(acc);
   } catch (err) { next(err); }
 });
 

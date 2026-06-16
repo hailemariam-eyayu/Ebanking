@@ -1,15 +1,69 @@
 /**
  * IB Transactions — Maker-Checker-Approval workflow
  *
- * Level 1 (INDIVIDUAL): Maker submits → auto approved
- * Level 2 (CORPORATE type 1): Maker submits → Checker approves
- * Level 3 (CORPORATE type 2): Maker → Checker → Approver
+ * Level 1 (INDIVIDUAL): Maker submits → auto approved → CBS A2A transfer
+ * Level 2 (CORPORATE type 1): Maker submits → Checker approves → CBS A2A transfer
+ * Level 3 (CORPORATE type 2): Maker → Checker → Approver → CBS A2A transfer
  *
  * If amount <= approvalLimit the transaction bypasses workflow.
+ *
+ * A2A endpoints (internal transfer):
+ *   POST http://10.1.12.35/a2a/validate  { debitAccount, creditAccount, amount, currency, description }
+ *   POST http://10.1.12.35/a2a/transfer  { debitAccount, creditAccount, amount, currency, description }
  */
 const router  = require('express').Router();
+const axios   = require('axios');
 const prisma  = require('../../lib/prismaIB');
 const { verifyIB } = require('../../middleware/auth');
+
+const A2A_BASE = process.env.A2A_BASE_URL || 'http://10.1.12.35';
+
+// ── A2A helpers ───────────────────────────────────────────────────────────────
+
+async function a2aValidate(debitAccount, creditAccount, amount, currency, description) {
+  const { data } = await axios.post(`${A2A_BASE}/a2a/validate`, {
+    debitAccount, creditAccount,
+    amount: String(amount), currency: currency || 'ETB',
+    description: description || '',
+  }, { timeout: 15000 });
+  return data;
+}
+
+async function a2aTransfer(debitAccount, creditAccount, amount, currency, description) {
+  const { data } = await axios.post(`${A2A_BASE}/a2a/transfer`, {
+    debitAccount, creditAccount,
+    amount: String(amount), currency: currency || 'ETB',
+    description: description || '',
+  }, { timeout: 30000 });
+  return data;
+}
+
+/**
+ * Submit an approved transaction to CBS via A2A.
+ * Updates the DB record with CBS reference or error.
+ */
+async function submitToA2A(txn) {
+  try {
+    // Validate first
+    await a2aValidate(txn.fromAccount, txn.toAccount, txn.amount, txn.currency, txn.description);
+
+    // Execute transfer
+    const result = await a2aTransfer(txn.fromAccount, txn.toAccount, txn.amount, txn.currency, txn.description);
+
+    const cbsRef = result?.referenceNo || result?.refNo || result?.transactionRef || result?.txnRef || null;
+
+    await prisma.iBTransaction.update({
+      where: { id: txn.id },
+      data: { status: 'PROCESSED', cbsReference: cbsRef || undefined, processedAt: new Date() },
+    });
+  } catch (err) {
+    console.error('[A2A Transfer Error]', txn.id, err?.response?.data || err.message);
+    await prisma.iBTransaction.update({
+      where: { id: txn.id },
+      data: { status: 'CBS_FAILED', cbsError: err?.response?.data?.message || err.message },
+    });
+  }
+}
 
 // ── Helper: resolve next status based on workflow ─────────────────────────────
 function nextStatus(level, amount, approvalLimit) {
@@ -29,6 +83,8 @@ router.post('/', verifyIB, async (req, res, next) => {
     const { type, fromAccount, toAccount, amount, currency, description } = req.body;
     if (!type || !fromAccount || !amount)
       return res.status(400).json({ message: 'type, fromAccount and amount required' });
+    if (!toAccount)
+      return res.status(400).json({ message: 'toAccount is required for transfers' });
 
     const customer = await prisma.iBCustomer.findUnique({ where: { id: req.user.customerId } });
     if (!customer || customer.status !== 'ACTIVE')
@@ -48,9 +104,9 @@ router.post('/', verifyIB, async (req, res, next) => {
       },
     });
 
-    // If auto-approved, submit to CBS (endpoint TBD)
+    // If auto-approved, fire A2A transfer asynchronously
     if (status === 'APPROVED') {
-      // TODO: call CBS transfer/payment endpoint when provided
+      setImmediate(() => submitToA2A(txn));
     }
 
     res.status(201).json(txn);
@@ -104,12 +160,15 @@ router.post('/:id/approve', verifyIB, async (req, res, next) => {
 
     const { userRole } = req.user;
     let updateData = {};
+    let nowApproved = false;
 
     if (txn.status === 'PENDING_CHECKER' && userRole === 'CHECKER') {
       // Level 2 → APPROVED,  Level 3 → PENDING_APPROVAL
       const nextStat = txn.workflowLevel === 3 ? 'PENDING_APPROVAL' : 'APPROVED';
+      nowApproved = nextStat === 'APPROVED';
       updateData = { status: nextStat, checkerId: req.user.id, checkerAt: new Date() };
     } else if (txn.status === 'PENDING_APPROVAL' && userRole === 'APPROVER') {
+      nowApproved = true;
       updateData = { status: 'APPROVED', approverId: req.user.id, approverAt: new Date() };
     } else {
       return res.status(403).json({ message: 'You cannot approve this transaction at this stage' });
@@ -119,7 +178,10 @@ router.post('/:id/approve', verifyIB, async (req, res, next) => {
       where: { id: req.params.id }, data: updateData,
     });
 
-    // If now APPROVED submit to CBS (TBD)
+    // Fire A2A transfer if this step results in APPROVED
+    if (nowApproved) {
+      setImmediate(() => submitToA2A(updated));
+    }
 
     res.json(updated);
   } catch (err) { next(err); }
