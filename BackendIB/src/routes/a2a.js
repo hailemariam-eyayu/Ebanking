@@ -16,12 +16,17 @@ const { verifyIB } = require('../middleware/auth');
 const A2A_URL = (process.env.A2A_API_URL || 'http://10.1.12.35:4001').replace(/\/$/, '');
 
 // ── Menu-right guard — checks IB user has canAct on the given menuKey ─────────
+// If the user has NO menu rights configured at all (BO "grant all" case),
+// treat as full access rather than blocking them.
 async function requireMenuRight(userId, menuKey) {
-  const right = await prisma.iBUserMenuRight.findUnique({
-    where: { userId_menuKey: { userId, menuKey } },
-  });
-  // OWNER always has full access; menu right must exist and canAct must be true
-  return right === null ? null : right; // null means "no record at all"
+  const [right, total] = await Promise.all([
+    prisma.iBUserMenuRight.findUnique({
+      where: { userId_menuKey: { userId, menuKey } },
+    }),
+    prisma.iBUserMenuRight.count({ where: { userId } }),
+  ]);
+  if (total === 0) return { canView: true, canAct: true }; // no rights configured → grant all
+  return right; // null if specific key not present
 }
 
 // ── POST /api/ib/a2a/validate ─────────────────────────────────────────────────
