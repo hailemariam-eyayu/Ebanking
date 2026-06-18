@@ -32,16 +32,57 @@ export default function AccountsPage() {
   const [detail,   setDetail]   = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
-  async function loadDetail(accNo) {
-    if (selected === accNo) { setSelected(null); setDetail(null); return }
-    setSelected(accNo)
+  function toggleDetail(acc) {
+    if (selected === acc.accountNumber) {
+      setSelected(null)
+      setDetail(null)
+      return
+    }
+
+    setSelected(acc.accountNumber)
+
+    // If we already have balance from the list, use it directly — no extra call
+    if (acc.currentBalance != null) {
+      setDetail({
+        accountNumber: acc.accountNumber,
+        accountClass:  acc.accountClass,
+        currency:      acc.currency,
+        custName:      acc.fullName,
+        accountStatus: acc.status,
+        frozen:        acc.isFrozen,
+        noDebit:       acc.noDebit,
+        noCredit:      acc.noCredit,
+        dormant:       acc.isDormant,
+        balances: {
+          currentBalance:   acc.currentBalance,
+          availableBalance: acc.currentBalance,
+        },
+      })
+      return
+    }
+
+    // Balance not in list (Oracle was down at list time) — try individual call
     setDetail(null)
     setDetailLoading(true)
-    try {
-      const { data } = await api.get(`/accounts/${accNo}`)
-      setDetail(data)
-    } catch { setDetail(null) }
-    finally { setDetailLoading(false) }
+    api.get(`/accounts/${acc.accountNumber}`)
+      .then(r => setDetail(r.data))
+      .catch(() => {
+        // Still failed — show DB-only info from the list data
+        setDetail({
+          accountNumber: acc.accountNumber,
+          accountClass:  acc.accountClass,
+          currency:      acc.currency,
+          custName:      acc.fullName,
+          accountStatus: acc.status ?? 'ACTIVE',
+          frozen:        false,
+          noDebit:       false,
+          noCredit:      false,
+          dormant:       false,
+          balances: { currentBalance: null, availableBalance: null },
+          _source: 'db_only',
+        })
+      })
+      .finally(() => setDetailLoading(false))
   }
 
   return (
@@ -66,7 +107,7 @@ export default function AccountsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {accounts.map((acc, i) => (
               <button key={acc.accountNumber}
-                onClick={() => loadDetail(acc.accountNumber)}
+                onClick={() => toggleDetail(acc)}
                 className={`rounded-2xl p-5 text-white shadow-lg text-left transition-transform hover:scale-[1.02] active:scale-100
                   ${selected === acc.accountNumber ? 'ring-2 ring-white ring-offset-2' : ''}`}
                 style={{ background: CARD_GRADIENTS[i % CARD_GRADIENTS.length] }}>
@@ -127,17 +168,23 @@ export default function AccountsPage() {
                   </div>
 
                   {/* Balance cards */}
-                  <div className="grid grid-cols-2 md:grid-cols-2 gap-4 mb-4">
-                    <BalanceCard
-                      label="Current Balance"
-                      value={detail.balances?.currentBalance}
-                      currency={detail.currency}
-                      primary />
-                    <BalanceCard
-                      label="Available Balance"
-                      value={detail.balances?.availableBalance}
-                      currency={detail.currency} />
-                  </div>
+                  {detail._source === 'db_only' ? (
+                    <div className="text-xs text-amber-600 bg-amber-50 rounded-xl px-4 py-3 mb-4">
+                      ⚠ Balance unavailable — CBS is currently unreachable. Account info shown from local records.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-2 gap-4 mb-4">
+                      <BalanceCard
+                        label="Current Balance"
+                        value={detail.balances?.currentBalance}
+                        currency={detail.currency}
+                        primary />
+                      <BalanceCard
+                        label="Available Balance"
+                        value={detail.balances?.availableBalance}
+                        currency={detail.currency} />
+                    </div>
+                  )}
 
                   {/* Flags */}
                   <div className="flex flex-wrap gap-2 mt-2">
@@ -151,9 +198,7 @@ export default function AccountsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="text-center text-red-400 text-sm py-4">
-                  Failed to load balance — CBS unreachable
-                </div>
+                <div className="text-center text-gray-400 text-sm py-4">Loading…</div>
               )}
             </div>
           )}

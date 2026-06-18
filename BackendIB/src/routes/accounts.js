@@ -60,7 +60,8 @@ router.get('/', verifyIB, async (req, res, next) => {
 });
 
 // ── GET /api/ib/accounts/:accountNo ──────────────────────────────────────────
-// Returns full detail for a single account from Oracle CBS DB.
+// Returns full detail for a single account.
+// Tries Oracle first; falls back to DB record if Oracle is unreachable.
 router.get('/:accountNo', verifyIB, async (req, res, next) => {
   try {
     // Verify account belongs to this customer
@@ -70,31 +71,49 @@ router.get('/:accountNo', verifyIB, async (req, res, next) => {
     if (!attached)
       return res.status(404).json({ message: 'Account not found or not attached to your profile' });
 
-    let detail;
+    // Try Oracle — gracefully fall back to DB data if unavailable
+    let detail = null;
     try {
       detail = await oracle.getAccountBalance(req.params.accountNo);
     } catch (oracleErr) {
       console.error('[accounts] Oracle detail fetch failed:', oracleErr.message);
-      return res.status(502).json({ message: 'Unable to reach CBS — please try again shortly' });
+      // Fall through to DB fallback below
     }
 
-    if (!detail)
-      return res.status(404).json({ message: 'Account not found in CBS' });
+    if (detail) {
+      return res.json({
+        accountNumber:  detail.accountNumber,
+        accountClass:   detail.accountClass,
+        currency:       detail.currency,
+        custName:       detail.fullName,
+        accountStatus:  detail.status,
+        frozen:         detail.isFrozen,
+        noDebit:        detail.noDebit,
+        noCredit:       detail.noCredit,
+        dormant:        detail.isDormant,
+        balances: {
+          currentBalance:   detail.currentBalance,
+          availableBalance: detail.currentBalance,
+        },
+      });
+    }
 
-    res.json({
-      accountNumber:  detail.accountNumber,
-      accountClass:   detail.accountClass,
-      currency:       detail.currency,
-      custName:       detail.fullName,
-      accountStatus:  detail.status,
-      frozen:         detail.isFrozen,
-      noDebit:        detail.noDebit,
-      noCredit:       detail.noCredit,
-      dormant:        detail.isDormant,
+    // Oracle unavailable or no record — return what we have from DB
+    return res.json({
+      accountNumber:  attached.accountNumber,
+      accountClass:   attached.accountClass,
+      currency:       attached.currency,
+      custName:       attached.fullName,
+      accountStatus:  attached.isActive ? 'ACTIVE' : 'INACTIVE',
+      frozen:         false,
+      noDebit:        false,
+      noCredit:       false,
+      dormant:        false,
       balances: {
-        currentBalance:   detail.currentBalance,
-        availableBalance: detail.currentBalance,  // Oracle view exposes current; overlay if view adds available
+        currentBalance:   null,
+        availableBalance: null,
       },
+      _source: 'db_only',  // hint to frontend that CBS data is unavailable
     });
   } catch (err) { next(err); }
 });
