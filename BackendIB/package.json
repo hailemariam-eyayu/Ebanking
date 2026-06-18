@@ -26,8 +26,10 @@
     "express": "^4.22.2",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "oracledb": "^6.7.0",
     "pg": "^8.21.0",
     "soap": "^1.0.0",
+    "ssh2": "^1.16.0",
     "xml2js": "^0.6.2"
   },
   "devDependencies": {
