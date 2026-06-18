@@ -50,6 +50,10 @@ export function AuthProvider({ children }) {
     if (!user) return false
     if (user.viewOnly) return false
     if (user.userRole === 'OWNER') return true
+    if (['MAKER'].includes(user.userRole) && menuRights.length === 0) {
+      // No menu rights configured yet — MAKER can act by default
+      return true
+    }
     return menuRights.some(m => m.menuKey === menuKey && m.canAct)
   }
 

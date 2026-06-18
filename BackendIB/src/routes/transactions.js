@@ -11,10 +11,19 @@ const prisma  = require('../lib/prismaIB');
 const { verifyIB } = require('../middleware/auth');
 
 // ── Helper: resolve menu right for a non-OWNER user ──────────────────────────
+// Returns the right record, or null if none exists.
+// If NO menu rights are configured at all for this user, we treat it as "grant all"
+// (this covers the BO "grant all" activation case).
 async function getMenuRight(userId, menuKey) {
-  return prisma.iBUserMenuRight.findUnique({
-    where: { userId_menuKey: { userId, menuKey } },
-  });
+  const [right, total] = await Promise.all([
+    prisma.iBUserMenuRight.findUnique({
+      where: { userId_menuKey: { userId, menuKey } },
+    }),
+    prisma.iBUserMenuRight.count({ where: { userId } }),
+  ]);
+  // No rights at all configured → grant all
+  if (total === 0) return { canView: true, canAct: true };
+  return right; // may be null if specific key not present
 }
 
 function nextStatus(level, amount, approvalLimit) {
