@@ -163,7 +163,13 @@ router.post('/:id/approve', verifyIB, async (req, res, next) => {
     } else if (txn.status === 'PENDING_APPROVAL' && userRole === 'APPROVER') {
       updateData = { status: 'APPROVED', approverId: userId, approverAt: new Date() };
     } else {
-      return res.status(403).json({ message: 'You cannot approve this transaction at this stage' });
+      // Tell the user exactly which role is needed at this stage
+      const requiredRole = txn.status === 'PENDING_CHECKER' ? 'CHECKER' : 'APPROVER';
+      return res.status(403).json({
+        message: `This transaction is at the ${txn.status.replace('PENDING_', '')} stage. It must be approved by a ${requiredRole}.`,
+        requiredRole,
+        currentStatus: txn.status,
+      });
     }
 
     const updated = await prisma.iBTransaction.update({
