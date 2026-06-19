@@ -104,13 +104,17 @@ router.post('/customers/:id/unblock', verifyBO, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── Set activation level / approval limit ─────────────────────────────────────
+// ── Set activation level / approval limit / account type ──────────────────────
 router.put('/customers/:id/settings', verifyBO, async (req, res, next) => {
   try {
-    const { activationLevel, approvalLimit } = req.body;
+    const { activationLevel, approvalLimit, accountType } = req.body;
+    const data = {}
+    if (activationLevel !== undefined) data.activationLevel = activationLevel
+    if (approvalLimit   !== undefined) data.approvalLimit   = approvalLimit
+    if (accountType     !== undefined) data.accountType     = accountType
     const c = await prismaIB.iBCustomer.update({
       where: { id: req.params.id },
-      data: { activationLevel, approvalLimit },
+      data,
     });
     res.json(c);
   } catch (err) { next(err); }

@@ -73,10 +73,6 @@ export default function IBManagePage() {
 
   const block   = useMutation({ mutationFn: id => api.post(`/ib/customers/${id}/block`),   onSuccess: () => qc.invalidateQueries(['ib-customers']) })
   const unblock = useMutation({ mutationFn: id => api.post(`/ib/customers/${id}/unblock`), onSuccess: () => qc.invalidateQueries(['ib-customers']) })
-  const updateSettings = useMutation({
-    mutationFn: ({ id, data }) => api.put(`/ib/customers/${id}/settings`, data),
-    onSuccess:  () => qc.invalidateQueries(['ib-customers']),
-  })
 
   function openAdd()        { setEditUser(null);  setModal('add') }
   function openEdit(u)      { setEditUser(u);     setModal('edit') }
@@ -209,26 +205,11 @@ export default function IBManagePage() {
 
           {/* ── Settings tab ── */}
           {tab === 'settings' && (
-            <div className="bg-white rounded-xl shadow-sm p-6 max-w-sm space-y-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Workflow Level</label>
-                <select key={selected.id} defaultValue={selected.activationLevel}
-                  onChange={e => updateSettings.mutate({ id: selected.id, data: { activationLevel: parseInt(e.target.value) } })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
-                  <option value={1}>Level 1 — Self approve (Individual)</option>
-                  <option value={2}>Level 2 — Maker + Checker</option>
-                  <option value={3}>Level 3 — Maker + Checker + Approver</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Auto-Approval Limit (ETB)</label>
-                <input type="number" key={selected.id} defaultValue={selected.approvalLimit || ''}
-                  onBlur={e => updateSettings.mutate({ id: selected.id, data: { approvalLimit: parseFloat(e.target.value) || null } })}
-                  placeholder="e.g. 50000"
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                <p className="text-xs text-gray-400 mt-1">Transactions below this amount skip the workflow.</p>
-              </div>
-            </div>
+            <SettingsPanel
+              key={selected.id}
+              customer={selected}
+              onSaved={() => qc.invalidateQueries(['ib-customers'])}
+            />
           )}
         </div>
       ) : (
@@ -562,5 +543,114 @@ function Field({ label, children }) {
 function ErrBox({ msg }) {
   return <div className="bg-red-50 border border-red-200 text-red-600 text-xs rounded-lg px-3 py-2 mb-3">{msg}</div>
 }
+
+// ── Settings panel (explicit Save button) ────────────────────────────────────
+function SettingsPanel({ customer, onSaved }) {
+  const [form, setForm] = useState({
+    accountType:     customer.accountType     || 'INDIVIDUAL',
+    activationLevel: customer.activationLevel || 1,
+    approvalLimit:   customer.approvalLimit   != null ? String(customer.approvalLimit) : '',
+  })
+  const [saved,  setSaved]  = useState(false)
+  const [err,    setErr]    = useState('')
+
+  const save = useMutation({
+    mutationFn: () => api.put(`/ib/customers/${customer.id}/settings`, {
+      accountType:     form.accountType,
+      activationLevel: parseInt(form.activationLevel),
+      approvalLimit:   form.approvalLimit !== '' ? parseFloat(form.approvalLimit) : null,
+    }),
+    onSuccess: () => {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+      onSaved?.()
+    },
+    onError: e => setErr(e.response?.data?.message || 'Failed to save'),
+  })
+
+  const dirty =
+    form.accountType     !== (customer.accountType || 'INDIVIDUAL') ||
+    parseInt(form.activationLevel) !== (customer.activationLevel || 1) ||
+    form.approvalLimit   !== (customer.approvalLimit != null ? String(customer.approvalLimit) : '')
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-6 max-w-sm space-y-4">
+
+      {/* Account Type */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Account Type</label>
+        <select value={form.accountType}
+          onChange={e => {
+            const t = e.target.value
+            setForm(f => ({
+              ...f,
+              accountType: t,
+              // auto-adjust level: individual defaults to 1, others to 2
+              activationLevel: t === 'INDIVIDUAL' ? 1 : Math.max(parseInt(f.activationLevel), 2),
+            }))
+          }}
+          className={SINP}>
+          <option value="INDIVIDUAL">Individual</option>
+          <option value="CORPORATE">Corporate</option>
+          <option value="GOVERNMENT">Government</option>
+        </select>
+      </div>
+
+      {/* Workflow Level */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Workflow Level</label>
+        <select value={form.activationLevel}
+          onChange={e => setForm(f => ({ ...f, activationLevel: parseInt(e.target.value) }))}
+          className={SINP}>
+          <option value={1}>Level 1 — Self approve</option>
+          <option value={2}>Level 2 — Maker + Checker</option>
+          <option value={3}>Level 3 — Maker + Checker + Approver</option>
+        </select>
+        <p className="text-[10px] text-gray-400 mt-1">
+          {form.activationLevel == 1 && 'Transactions are auto-approved immediately.'}
+          {form.activationLevel == 2 && 'Each transaction needs a Checker to approve.'}
+          {form.activationLevel == 3 && 'Each transaction needs Checker then Approver.'}
+        </p>
+      </div>
+
+      {/* Auto-Approval Limit */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1">Auto-Approval Limit (ETB)</label>
+        <input type="number" min="0" placeholder="e.g. 50000"
+          value={form.approvalLimit}
+          onChange={e => setForm(f => ({ ...f, approvalLimit: e.target.value }))}
+          className={SINP} />
+        <p className="text-[10px] text-gray-400 mt-1">
+          Transactions at or below this amount skip the workflow regardless of level.
+          Leave blank to always require approval.
+        </p>
+      </div>
+
+      {err && (
+        <div className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{err}</div>
+      )}
+
+      {saved && (
+        <div className="text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2 flex items-center gap-1.5">
+          <CheckCircle size={13} />Settings saved successfully
+        </div>
+      )}
+
+      <button
+        onClick={() => { setErr(''); save.mutate() }}
+        disabled={save.isPending || !dirty}
+        className="w-full py-2.5 rounded-lg text-white text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-40 transition-opacity"
+        style={{ background: 'var(--brand-primary)' }}>
+        {save.isPending ? 'Saving…' : <><Save size={14} />Save Settings</>}
+      </button>
+
+      {!dirty && !saved && (
+        <p className="text-[10px] text-center text-gray-400">No unsaved changes</p>
+      )}
+    </div>
+  )
+}
+
+const SINP = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400'
 
 const INPUT = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400'
