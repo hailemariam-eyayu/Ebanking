@@ -112,12 +112,22 @@ router.get('/pending', verifyIB, async (req, res, next) => {
     let statusFilter;
     if (userRole === 'CHECKER')       statusFilter = 'PENDING_CHECKER';
     else if (userRole === 'APPROVER') statusFilter = 'PENDING_APPROVAL';
+    else if (userRole === 'OWNER') {
+      // OWNER can see all pending at any stage
+      const txns = await prisma.iBTransaction.findMany({
+        where: { customerId, status: { in: ['PENDING_CHECKER', 'PENDING_APPROVAL'] } },
+        orderBy: { createdAt: 'asc' },
+      });
+      return res.json({ transactions: txns });
+    }
     else return res.json({ transactions: [] });
 
-    // Menu right check
+    // CHECKER and APPROVER: check menu right but treat "no rights configured" as grant-all
     const right = await getMenuRight(userId, 'transactions');
-    if (!right || !right.canView)
+    if (right !== null && !right.canView) {
+      // rights exist but this specific key denies view
       return res.status(403).json({ message: 'You do not have permission to view pending transactions' });
+    }
 
     const txns = await prisma.iBTransaction.findMany({
       where: { customerId, status: statusFilter },
@@ -135,9 +145,9 @@ router.post('/:id/approve', verifyIB, async (req, res, next) => {
     if (!['CHECKER', 'APPROVER'].includes(userRole))
       return res.status(403).json({ message: 'Only Checker or Approver can approve transactions' });
 
-    // Menu right check
+    // Menu right check — only block if rights exist AND explicitly deny
     const right = await getMenuRight(userId, 'transactions');
-    if (!right || !right.canAct)
+    if (right !== null && !right.canAct)
       return res.status(403).json({ message: 'You do not have permission to approve transactions' });
 
     const txn = await prisma.iBTransaction.findUnique({ where: { id: req.params.id } });

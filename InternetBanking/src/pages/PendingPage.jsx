@@ -9,18 +9,27 @@ export default function PendingPage() {
   const qc = useQueryClient()
   const role = user?.userRole
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['ib-pending'],
     queryFn: () => api.get('/transactions/pending').then(r => r.data),
+    retry: false,
   })
 
   const approve = useMutation({
     mutationFn: id => api.post(`/transactions/${id}/approve`),
-    onSuccess: () => qc.invalidateQueries(['ib-pending']),
+    onSuccess: () => {
+      qc.invalidateQueries(['ib-pending'])
+      qc.invalidateQueries(['ib-dashboard'])
+      qc.invalidateQueries(['ib-transactions'])
+    },
   })
   const reject = useMutation({
     mutationFn: ({ id, reason }) => api.post(`/transactions/${id}/reject`, { reason }),
-    onSuccess: () => qc.invalidateQueries(['ib-pending']),
+    onSuccess: () => {
+      qc.invalidateQueries(['ib-pending'])
+      qc.invalidateQueries(['ib-dashboard'])
+      qc.invalidateQueries(['ib-transactions'])
+    },
   })
 
   const [rejectModal, setRejectModal] = useState(null)
@@ -48,6 +57,11 @@ export default function PendingPage() {
 
       {isLoading ? (
         <div className="text-gray-400 text-sm">Loading…</div>
+      ) : error ? (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center">
+          <p className="text-sm text-red-500 font-medium">Failed to load pending transactions</p>
+          <p className="text-xs text-red-400 mt-1">{error?.response?.data?.message || error?.message}</p>
+        </div>
       ) : txns.length === 0 ? (
         <div className="bg-white rounded-2xl p-10 text-center shadow-sm">
           <Clock size={40} className="mx-auto mb-3 text-gray-300" />
